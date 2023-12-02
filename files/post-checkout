@@ -1,0 +1,245 @@
+#!/usr/bin/env bash
+
+set -eu
+
+#
+# Configurations
+#
+CONFIG_DIR="${HOME}/.config/git-multiple-identities"
+CONFIG_PATH="${CONFIG_DIR}/config.json"
+CONFIG_BY_DEVICE_PATH="${CONFIG_DIR}/config-by-device.json"
+
+#
+# Functions
+#
+function yn_question() {
+  local MSG="$1"
+  read -p "$MSG ([Y]es or [n]o):" < /dev/tty # See: https://stackoverflow.com/a/38484237
+  local SELECTED="$(echo "${REPLY}" | tr "[A-Z]" "[a-z]")"
+
+  if [[ -z "${SELECTED}" ]]; then
+    local SELECTED="yes"
+  fi
+
+  case "${SELECTED}" in
+    y|yes)
+      echo "yes"
+      ;;
+    n|no)
+      echo "no"
+      ;;
+    *)
+      echo "Please enter one of 'y', 'yes', 'n', or 'no'. (Case insensitive)" > /dev/stderr
+      echo "$(yn_question "$MSG")"
+      ;;
+  esac
+}
+
+#
+# Main Process
+#
+
+#
+# Configuration file initialization
+#
+mkdir --parents "${CONFIG_DIR}"
+
+if [[ ! -f "${CONFIG_PATH}" ]]; then
+  rm --force "${CONFIG_PATH}"
+  echo "{}" | tee "${CONFIG_PATH}" > /dev/null
+fi
+
+if [[ ! -f "${CONFIG_BY_DEVICE_PATH}" ]]; then
+  rm --force "${CONFIG_BY_DEVICE_PATH}"
+  echo "{}" | tee "${CONFIG_BY_DEVICE_PATH}" > /dev/null
+fi
+
+#
+# Delete existing global & system-wide user name & email
+#
+GLOBAL_USERNAME="$(git config --global --get user.name || echo "")"
+GLOBAL_EMAIL="$(git config --global --get user.email || echo "")"
+SYSTEM_USERNAME="$(git config --system --get user.name || echo "")"
+SYSTEM_EMAIL="$(git config --system --get user.email || echo "")"
+
+if [[ -n "${GLOBAL_USERNAME}" ]] || [[ -n "${GLOBAL_EMAIL}" ]] || [[ -n "${SYSTEM_USERNAME}" ]] || [[ -n "${SYSTEM_EMAIL}" ]]; then
+  # TODO import existing global & system-wide identities to config file (~/.config/git-multiple-identities/accounts.json)
+  cat <<-__MSG__
+    [git-multiple-identities]
+    To avoid setting wrong identity by any bug or human error, we strongly recommend to delete global and system-wide user name and email.
+
+    Here're current values:
+    User Name (Global): ${GLOBAL_USERNAME}
+    Email (Global): ${GLOBAL_EMAIL}
+    User Name (System): ${SYSTEM_USERNAME}
+    Email (System): ${SYSTEM_EMAIL}
+__MSG__
+
+  case "$(yn_question "Delete them?")" in
+    yes)
+      git config --global --unset user.name
+      git config --global --unset user.email
+
+      if [[ -n "${SYSTEM_USERNAME}" ]] || [[ -n "${SYSTEM_EMAIL}" ]]; then
+        echo "You need root privilege to unset system-wide user name and email."
+        sudo git config --system --unset user.name
+        sudo git config --system --unset user.email
+      fi
+
+      echo "Global and system-wide identities are deleted."
+      ;;
+    no)
+      echo "Global and system-wide identities has been kept as is."
+      ;;
+  esac
+fi
+
+#
+# Parsing origin URL
+#
+echo "Contacting Git server. This may take a while."
+
+ORIGIN="$(git remote get-url origin)"
+
+# GitHub username can contain alphanumeric characters
+# GitHub repository name can contain ASCII letters, digits, and the characters ., -, and _.
+# TODO Check user and repository name conditions on GitLab and Bitbucket
+# TODO hostname regex does not support some domains. Use better regex to support them.
+
+if [[ $ORIGIN =~ git@([A-Za-z0-9\-\.]+):([A-Za-z0-9\-]+)\/([A-Za-z0-9\.\-_]+)\.git ]]; then
+  # git@EXAMPLE.COM:USER/REPO.git
+  HOSTNAME="${BASH_REMATCH[1]}"
+  OWNER="${BASH_REMATCH[2]}"
+  REPO="${BASH_REMATCH[3]}"
+  PROTOCOL="ssh"
+elif [[ $ORIGIN =~ https:\/\/([A-Za-z0-9\-\.]+)\/([A-Za-z0-9\-]+)\/([A-Za-z0-9\.\-_]+)\.git ]]; then
+  # https://EXAMPLE.COM/$USER/$REPO.git
+  HOSTNAME="${BASH_REMATCH[1]}"
+  OWNER="${BASH_REMATCH[2]}"
+  REPO="${BASH_REMATCH[3]}"
+  PROTOCOL="https"
+else
+  echo "Unsupported Git URL: ${ORIGIN}"
+  echo "git-multiple-identities only supports git@EXAMPLE.COM:USER/REPO.git and https://EXAMPLE.COM/USER/REPO.git style URLs currently."
+  exit 0 # TODO Better error processing
+fi
+
+#
+# Main processes
+#
+IDENTITY_UUID="$(cat "${CONFIG_PATH}" | jq 'try .repos[] | select((.hostname == "${HOSTNAME}" and .owner == "${OWNER}" and .repo == null) or (.hostname == "${HOSTNAME}" and .owner == "${OWNER}" and .repo == "$REPO"))' | jq "try .identity")"
+
+if [[ -n "${IDENTITY_UUID}" ]]; then # If identity for this repository is found
+  IDENTITY_NAME="$(cat "${CONFIG_PATH}" | jq ".identities[] | select(.id == "${IDENTITY_UUID}")" | jq ".name")"
+  IDENTITY_EMAIL="$(cat "${CONFIG_PATH}" | jq ".identities[] | select(.id == "${IDENTITY_UUID}")" | jq ".email")"
+
+  if [[ -z "${IDENTITY_NAME}" ]] || [[ -z "${IDENTITY_EMAIL}" ]]; then
+    cat <<-__MSG__
+      [ERROR] Something technigally wrong, apologies for the inconvenience. This is a bug in git-multiple-identities.
+      Please report this bug to https://github.com/phanect/git-multiple-identities/issues/new with the following debug information. (Replace your emails and names with dummy one.)
+
+      Debug information:
+      Result of \`jq ".identities"\`: $(cat "${CONFIG_PATH}" | jq ".identities")
+__MSG__
+    exit 1
+  fi
+
+  if [[ "${IDENTITY_NAME}" != "$(git config --local --get user.name)" ]]; then
+    echo "Replacing existing user name $(git config --local --get user.name) with ${IDENTITY_NAME}..."
+    git config --local user.name "${IDENTITY_NAME}"
+  fi
+  if [[ "${IDENTITY_EMAIL}" != "$(git config --local --get user.email)" ]]; then
+    echo "Replacing existing email $(git config --local --get user.email) with ${IDENTITY_EMAIL}..."
+    git config --local user.email "${IDENTITY_EMAIL}"
+  fi
+else # If identity for this repository is not found
+  # NOTE: SELECTED_IDENTITY_WITH_INDEX has index starting from 1, not 0
+
+  EXISTING_IDENTITIES="$(cat "${CONFIG_PATH}" | jq 'try .identities[] | .name + " <" + .email + ">"' &> /dev/null)"
+
+  if [[ -n "${EXISTING_IDENTITIES}" ]]; then
+    ISELECT_OPTIONS=""
+
+    SELECTED_IDENTITY_WITH_INDEX="$(iselect \
+      --all-select --exit-no-select --strip-result --position-result \
+      --name="Select identity to use in this repository." \
+      "${EXISTING_IDENTITIES}${IFS}Create new identity")"
+
+    IFS=":" read -ra SELECTED_IDENTITY_INDEX_AND_NAME <<< "${SELECTED_IDENTITY_WITH_INDEX}"
+    SELECTED_IDENTITY_INDEX="${SELECTED_IDENTITY_INDEX_AND_NAME[0]}"
+
+    SELECTED_IDENTITY_NAME="$(cat "${CONFIG_PATH}" | jq ".identities[$((SELECTED_IDENTITY_INDEX - 1))].name")"
+    SELECTED_IDENTITY_EMAIL="$(cat "${CONFIG_PATH}" | jq ".identities[$((SELECTED_IDENTITY_INDEX - 1))].email")"
+  else
+    SELECTED_IDENTITY_NAME=""
+    SELECTED_IDENTITY_EMAIL=""
+  fi
+
+  # Create new identity
+  if [[ -z "${SELECTED_IDENTITY_NAME}" ]] && [[ -z "${SELECTED_IDENTITY_EMAIL}" ]]; then
+    echo "Creating new identity..."
+    echo "Please enter your name:"
+    read -r SELECTED_IDENTITY_NAME
+    echo "Please enter your email:"
+    read -r SELECTED_IDENTITY_EMAIL
+
+    IDENTITY_UUID="$(uuid)"
+
+    jq ".identities[.identities | length] |= . + { \"id\": \"${IDENTITY_UUID}\", \"name\": \"$(SELECTED_IDENTITY_NAME)\", \"email\": \"$(SELECTED_IDENTITY_EMAIL)\" }" "${CONFIG_PATH}"
+
+    git config --local user.name "${SELECTED_IDENTITY_NAME}"
+    git config --local user.email "${SELECTED_IDENTITY_EMAIL}"
+  else # Use selected identity
+    git config --local user.name "${SELECTED_IDENTITY_NAME}"
+    git config --local user.email "${SELECTED_IDENTITY_EMAIL}"
+  fi
+
+  case "$(yn_question "Use this identity [${SELECTED_IDENTITY_NAME} <${SELECTED_IDENTITY_EMAIL}>] for all repository under ${HOSTNAME}/${OWNER}?")" in
+    yes)
+      jq ".repos[.repos | length] |= . + { \"hostname\": \"${HOSTNAME}\", \"owner\": \"${OWNER}\", "identity": \"${IDENTITY_UUID}\" }" "${CONFIG_PATH}"
+      echo "The selected identity \"${SELECTED_IDENTITY_NAME} <${SELECTED_IDENTITY_EMAIL}>\" would be used in the all repositories under ${HOSTNAME}/${OWNER}/."
+      ;;
+    no)
+      jq ".repos[.repos | length] |= . + { \"hostname\": \"${HOSTNAME}\", \"owner\": \"${OWNER}\", \"repo\": \"${REPO}\", "identity": \"${IDENTITY_UUID}\" }" "${CONFIG_PATH}"
+      echo "The selected identity \"${SELECTED_IDENTITY_NAME} <${SELECTED_IDENTITY_EMAIL}>\" would be used in this repository: ${HOSTNAME}/${OWNER}/${REPO}."
+      ;;
+  esac
+
+  #
+  # Select SSH key
+  #
+  if [[ "${PROTOCOL}" == "ssh" ]]; then
+    CONFIG_BY_DEVICE_JSON="$(cat "${CONFIG_BY_DEVICE_PATH}")"
+    SSH_PRIVATE_KEY_PATH="$(echo "${CONFIG_BY_DEVICE_JSON}" | jq ".ssh[] | select(.id == \"${IDENTITY_UUID}\").private")"
+    SSH_PUBLIC_KEY_PATH="$(echo "${CONFIG_BY_DEVICE_JSON}" | jq ".ssh[] | select(.id == \"${IDENTITY_UUID}\").public")"
+
+    if [[ -z "${SSH_PRIVATE_KEY_PATH}" ]] || [[ -z "${SSH_PUBLIC_KEY_PATH}" ]]; then
+      SSH_PRIVATE_KEY_PATH="${HOME}/.ssh/$(iselect \
+        --all-select --exit-no-select --strip-result --position-result \
+        --name="Please select SSH PRIVATE key for this identity" \
+        "$(ls \
+          --ignore="known_hosts" \
+          --ignore="known_hosts.*" \
+          --ignore="authorized_keys" \
+          --ignore="ssh_config" \
+          --ignore="sshd_config" \
+          --ignore="*.pub" \
+          "${HOME}/.ssh" \
+        )" \
+      )"
+      SSH_PUBLIC_KEY_PATH="${HOME}/.ssh/$(iselect \
+        --all-select --exit-no-select --strip-result --position-result \
+        --name="Please select SSH PUBLIC key for this identity" \
+        "$(ls "${HOME}/.ssh/*.pub")" \
+      )"
+
+      jq ".ssh[.ssh | length] |= . + { \"id\": \"${IDENTITY_UUID}\",  \"private\": \"${SSH_PRIVATE_KEY_PATH}\", \"public\": \"${SSH_PUBLIC_KEY_PATH}\" }" "${CONFIG_BY_DEVICE_PATH}"
+
+      cat <<-__MSG__
+        The selected identity \"${SELECTED_IDENTITY_NAME} <${SELECTED_IDENTITY_EMAIL}>\" would be used with the following SSH key pair:
+        Private key: ${SSH_PRIVATE_KEY_PATH}
+        Public key: ${SSH_PUBLIC_KEY_PATH}
+__MSG__
+    fi
+  fi
+fi

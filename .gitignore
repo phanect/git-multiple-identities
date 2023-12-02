@@ -1,0 +1,25 @@
+#
+# Project-Specific
+#
+
+# Built files
+dist/
+
+#
+# System
+#
+
+# Logs
+logs/
+*.log
+
+# PIDs
+*.pid
+*.seed
+*.pid.lock
+pids
+
+# File manager configs
+.directory
+Thumbs.db
+.DS_Store

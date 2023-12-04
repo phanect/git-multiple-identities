@@ -1,0 +1,26 @@
+{
+  "identities": [
+    {
+      "id": "9753eee6-919f-11ee-a6ee-93aeed8fabcb",
+      "name": "Jumpei Ogawa",
+      "email": "git@phanective.org"
+    },
+    {
+      "id": "965a6e50-91bf-11ee-b7d8-1f1bd3596944",
+      "name": "Jumpei Ogawa (Geolonia)",
+      "email": "git-geolonia@phanective.org"
+    }
+  ],
+  "repos": [
+    { "hostname": "github.com", "owner": "phanect", "identity": "9753eee6-919f-11ee-a6ee-93aeed8fabcb" },
+    { "hostname": "github.com", "owner": "reg-viz", "repo": "reg-suit", "identity": "9753eee6-919f-11ee-a6ee-93aeed8fabcb" },
+    { "hostname": "gitlab.com", "owner": "phanect", "identity": "9753eee6-919f-11ee-a6ee-93aeed8fabcb" },
+    { "hostname": "invent.kde.org", "owner": "jogawa", "identity": "9753eee6-919f-11ee-a6ee-93aeed8fabcb" },
+    { "hostname": "bitbucket.org", "owner": "phanect", "identity": "9753eee6-919f-11ee-a6ee-93aeed8fabcb" },
+
+    { "hostname": "github.com", "owner": "geolonia", "identity": "965a6e50-91bf-11ee-b7d8-1f1bd3596944" },
+    { "hostname": "github.com", "owner": "geoloniamaps", "identity": "965a6e50-91bf-11ee-b7d8-1f1bd3596944" },
+    { "hostname": "github.com", "owner": "takamatsu-city", "identity": "965a6e50-91bf-11ee-b7d8-1f1bd3596944" },
+    { "hostname": "ghe.example.com", "owner": "ogawa", "identity": "9753eee6-919f-11ee-a6ee-93aeed8fabcb" }
+  ]
+}

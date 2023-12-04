@@ -1,0 +1,14 @@
+{
+  "ssh": [
+    {
+      "id": "9753eee6-919f-11ee-a6ee-93aeed8fabcb",
+      "private": "/home/phanect/.ssh/id_ed25519_gitids_a8gokf",
+      "public": "/home/phanect/.ssh/id_ed25519_gitids_a8gokf.pub"
+    },
+    {
+      "id": "965a6e50-91bf-11ee-b7d8-1f1bd3596944",
+      "private": "/home/phanect/.ssh/id_ed25519_gitids_a8gokf",
+      "public": "/home/phanect/.ssh/id_ed25519_gitids_a8gokf.pub"
+    }
+  ]
+}

@@ -106,13 +106,16 @@ ORIGIN="$(git remote get-url origin)"
 # TODO Check user and repository name conditions on GitLab and Bitbucket
 # TODO hostname regex does not support some domains. Use better regex to support them.
 
-if [[ $ORIGIN =~ git@([A-Za-z0-9\-\.]+):([A-Za-z0-9\-]+)\/([A-Za-z0-9\.\-_]+)\.git ]]; then
+GIT_URL_SSH_REGEX="^git@([A-Za-z0-9\-\.]+):([A-Za-z0-9\-]+)\/([A-Za-z0-9_\.\-]+)\.git$"
+GIT_URL_HTTPS_REGEX="^https:\/\/([A-Za-z0-9\-\.]+)\/([A-Za-z0-9\-]+)\/([A-Za-z0-9_\.\-]+)\.git$"
+
+if [[ "${ORIGIN}" =~ $GIT_URL_SSH_REGEX ]]; then
   # git@EXAMPLE.COM:USER/REPO.git
   HOSTNAME="${BASH_REMATCH[1]}"
   OWNER="${BASH_REMATCH[2]}"
   REPO="${BASH_REMATCH[3]}"
   PROTOCOL="ssh"
-elif [[ $ORIGIN =~ https:\/\/([A-Za-z0-9\-\.]+)\/([A-Za-z0-9\-]+)\/([A-Za-z0-9\.\-_]+)\.git ]]; then
+elif [[ "${ORIGIN}" =~ $GIT_URL_HTTPS_REGEX ]]; then
   # https://EXAMPLE.COM/$USER/$REPO.git
   HOSTNAME="${BASH_REMATCH[1]}"
   OWNER="${BASH_REMATCH[2]}"

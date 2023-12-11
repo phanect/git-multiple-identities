@@ -130,7 +130,7 @@ fi
 #
 # Main processes
 #
-IDENTITY_UUID="$(cat "${CONFIG_PATH}" | jq '.repos[] | select((.hostname == "${HOSTNAME}" and .owner == "${OWNER}" and .repo == null) or (.hostname == "${HOSTNAME}" and .owner == "${OWNER}" and .repo == "$REPO"))' | jq ".identity")"
+IDENTITY_UUID="$(cat "${CONFIG_PATH}" | jq 'try .repos[] | select((.hostname == "${HOSTNAME}" and .owner == "${OWNER}" and .repo == null) or (.hostname == "${HOSTNAME}" and .owner == "${OWNER}" and .repo == "$REPO"))' | jq " try .identity")"
 
 if [[ -n "${IDENTITY_UUID}" ]]; then # If identity for this repository is found
   IDENTITY_NAME="$(cat "${CONFIG_PATH}" | jq ".identities[] | select(.id == "${IDENTITY_UUID}")" | jq ".name")"
@@ -157,16 +157,26 @@ __MSG__
   fi
 else # If identity for this repository is not found
   # NOTE: SELECTED_IDENTITY_WITH_INDEX has index starting from 1, not 0
-  SELECTED_IDENTITY_WITH_INDEX="$(iselect \
-    --all-select --exit-no-select --strip-result --position-result \
-    --name="Select identity to use in this repository." \
-    "$(cat "${CONFIG_PATH}" | jq '.identities[] | .name + " <" + .email + ">"')${IFS}Create new identity")"
 
-  IFS=":" read -ra SELECTED_IDENTITY_INDEX_AND_NAME <<< "${SELECTED_IDENTITY_WITH_INDEX}"
-  SELECTED_IDENTITY_INDEX="${SELECTED_IDENTITY_INDEX_AND_NAME[0]}"
+  EXISTING_IDENTITIES="$(cat "${CONFIG_PATH}" | jq 'try .identities[] | .name + " <" + .email + ">"' &> /dev/null)"
 
-  SELECTED_IDENTITY_NAME="$(cat "${CONFIG_PATH}" | jq ".identities[$((SELECTED_IDENTITY_INDEX - 1))].name")"
-  SELECTED_IDENTITY_EMAIL="$(cat "${CONFIG_PATH}" | jq ".identities[$((SELECTED_IDENTITY_INDEX - 1))].email")"
+  if [[ -n "${EXISTING_IDENTITIES}" ]]; then
+    ISELECT_OPTIONS=""
+
+    SELECTED_IDENTITY_WITH_INDEX="$(iselect \
+      --all-select --exit-no-select --strip-result --position-result \
+      --name="Select identity to use in this repository." \
+      "${EXISTING_IDENTITIES}${IFS}Create new identity")"
+
+    IFS=":" read -ra SELECTED_IDENTITY_INDEX_AND_NAME <<< "${SELECTED_IDENTITY_WITH_INDEX}"
+    SELECTED_IDENTITY_INDEX="${SELECTED_IDENTITY_INDEX_AND_NAME[0]}"
+
+    SELECTED_IDENTITY_NAME="$(cat "${CONFIG_PATH}" | jq ".identities[$((SELECTED_IDENTITY_INDEX - 1))].name")"
+    SELECTED_IDENTITY_EMAIL="$(cat "${CONFIG_PATH}" | jq ".identities[$((SELECTED_IDENTITY_INDEX - 1))].email")"
+  else
+    SELECTED_IDENTITY_NAME=""
+    SELECTED_IDENTITY_EMAIL=""
+  fi
 
   # Create new identity
   if [[ -z "${SELECTED_IDENTITY_NAME}" ]] && [[ -z "${SELECTED_IDENTITY_EMAIL}" ]]; then
